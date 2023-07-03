@@ -1,6 +1,8 @@
 <?php
 
 namespace App\Http\Controllers;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
@@ -78,25 +80,34 @@ class EmployeeController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
-         // ELOQUENT
-         $employee = New Employee;
-         $employee->firstName = $request->firstName;
-         $employee->lastName = $request->lastName;
-         $employee->email = $request->email;
-         $employee->age = $request->age;
-         $employee->position_id = $request->position;
-         $employee->save();
+        // Get File
+        $file = $request->file('cv');
 
-         return redirect()->route('employees.index');
+        if ($file != null) {
+            $originalFilename = $file->getClientOriginalName();
+            $encryptedFilename = $file->hashName();
 
-        // INSERT QUERY
-        // DB::table('employees')->insert([
-        //     'firstname' => $request->firstName,
-        //     'lastname' => $request->lastName,
-        //     'email' => $request->email,
-        //     'age' => $request->age,
-        //     'position_id' => $request->position,
-        // ]);
+            // Store File
+            $file->store('public/files');
+        }
+
+        // ELOQUENT
+        $employee = New Employee;
+        $employee->firstname = $request->firstName;
+        $employee->lastname = $request->lastName;
+        $employee->email = $request->email;
+        $employee->age = $request->age;
+        $employee->position_id = $request->position;
+
+        if ($file != null) {
+            $employee->original_filename = $originalFilename;
+            $employee->encrypted_filename = $encryptedFilename;
+        }
+
+        $employee->save();
+
+        return redirect()->route('employees.index');
+
     }
 
 
@@ -148,60 +159,78 @@ class EmployeeController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, string $id)
+    public function update(Request $request, $id)
     {
         $messages = [
-            'required' => ':Attribute harus diisi',
-            'email' => 'Isi : attribute dengan format yang benar',
-            'numeric' => 'Isi : attribute dengan angka'
+            'required' => 'Attribute harus diisi',
+            'email' => 'Isi :attribute dengan format yang benar',
+            'numeric' => 'Isi :attribute dengan angka'
         ];
-
         $validator = Validator::make($request->all(), [
             'firstName' => 'required',
             'lastName' => 'required',
             'email' => 'required|email',
-            'age' => 'required|numeric',
+            'age' => 'required|numeric'
         ], $messages);
-
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
-        // ELOQUENT
         $employee = Employee::find($id);
-        $employee->firstName = $request->firstName;
-        $employee->lastName = $request->lastName;
+        $employee->firstname = $request->firstName;
+        $employee->lastname = $request->lastName;
         $employee->email = $request->email;
         $employee->age = $request->age;
         $employee->position_id = $request->position;
+
+        // Cek apakah ada file CV yang diunggah
+        if ($request->hasFile('cv')) {
+            // Hapus file CV lama jika ada
+            if ($employee->encrypted_filename) {
+                Storage::disk('public')->delete('files/' . $employee->encrypted_filename);
+            }
+
+            // Upload file CV yang baru
+            $file = $request->file('cv');
+            $originalFilename = $file->getClientOriginalName();
+            $encryptedFilename = $file->hashName();
+            $file->store('public/files');
+
+            $employee->original_filename = $originalFilename;
+            $employee->encrypted_filename = $encryptedFilename;
+        }
+
         $employee->save();
 
         return redirect()->route('employees.index')->with('succes', 'Employee updated succesfully');
-
-        // DB::table('employees')
-        // ->where('id', $id)
-        // ->update([
-        //     'firstName'=> $request->firstName,
-        //     'lastName'=> $request->lastName,
-        //     'email'=> $request->email,
-        //     'age'=> $request->age,
-        //     'position_id'=> $request->position,
-        // ]);
     }
-
     /**
      * Remove the specified resource from storage.
      */
+
     public function destroy(string $id)
     {
-        // ELOQUENT
-        Employee::find($id)->delete();
+        $employee = Employee::find($id);
+
+        // Hapus file CV jika ada
+        if ($employee->encrypted_filename) {
+            Storage::disk('public')->delete('files/' . $employee->encrypted_filename);
+        }
+
+        // Hapus data employee
+        $employee->delete();
 
         return redirect()->route('employees.index');
+    }
 
-        // QUERY BUILDER
-        // DB::table('employees')
-        //     ->where('id', $id)
-        //     ->delete();
+    public function downloadFile($employeeId)
+    {
+        $employee = Employee::find($employeeId);
+        $encryptedFilename = 'public/files/'.$employee->encrypted_filename;
+        $downloadFilename = Str::lower($employee->firstname.'_'.$employee->lastname.'_cv.pdf');
+
+        if(Storage::exists($encryptedFilename)) {
+            return Storage::download($encryptedFilename, $downloadFilename);
+        }
     }
 }

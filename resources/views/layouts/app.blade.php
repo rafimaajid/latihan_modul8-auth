@@ -79,8 +79,10 @@
         </nav>
 
         <main class="py-4">
+            {{-- @include('layouts.nav') --}}
             @yield('content')
+            @vite('resources/js/app.js')
+            @stack('scripts')
         </main>
-    </div>
 </body>
 </html>
